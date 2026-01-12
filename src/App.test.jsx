@@ -3,47 +3,50 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import App from './App'
 import { supabase } from './supabaseClient'
 
-// Mock Supabase client
-vi.mock('./supabaseClient', () => {
-  const selectMock = vi.fn()
-  const insertMock = vi.fn()
-  const updateMock = vi.fn()
-  const eqMock = vi.fn()
-  const singleMock = vi.fn()
-
-  const fromMock = vi.fn(() => ({
-    select: selectMock,
-    insert: insertMock,
-    update: updateMock,
-    eq: eqMock,
-    single: singleMock,
-  }))
-
-  // Chainable mocks
-  selectMock.mockReturnValue({ data: [], error: null })
-  insertMock.mockReturnValue({ select: vi.fn(() => ({ data: [], error: null })) })
-  updateMock.mockReturnValue({ eq: eqMock })
-  eqMock.mockReturnValue({ single: singleMock, data: [], error: null })
-  singleMock.mockReturnValue({ data: null, error: null })
-
-  return {
-    supabase: {
-      from: fromMock,
-    },
+// Helper to create a chainable mock builder
+const createMockBuilder = (resultData = { data: [], error: null }) => {
+  const builder = {
+    select: vi.fn(),
+    insert: vi.fn(),
+    update: vi.fn(),
+    eq: vi.fn(),
+    single: vi.fn(),
+    then: (resolve, reject) => Promise.resolve(resultData).then(resolve, reject)
   }
-})
+
+  // Default chaining: methods return the same builder (preserving the resultData)
+  // unless overridden in a test
+  builder.select.mockReturnValue(builder)
+  builder.insert.mockReturnValue(builder)
+  builder.update.mockReturnValue(builder)
+  builder.eq.mockReturnValue(builder)
+  builder.single.mockReturnValue(builder)
+
+  return builder
+}
+
+// Mock Supabase client
+vi.mock('./supabaseClient', () => ({
+  supabase: {
+    from: vi.fn(),
+  },
+}))
 
 describe('App Component', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    
-    // Default mock implementation for fetching participants
-    const selectMock = supabase.from().select
-    selectMock.mockResolvedValue({ data: [], error: null })
+    // Default: from() returns a builder that resolves to empty list
+    supabase.from.mockReturnValue(createMockBuilder({ data: [], error: null }))
   })
 
   it('renders the join form initially', async () => {
     render(<App />)
+    
+    // Wait for loading to finish
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
+    })
+
     expect(screen.getByText("New Year's Gift Exchange 🎁")).toBeInTheDocument()
     expect(screen.getByText('Join the Lottery')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Enter your name')).toBeInTheDocument()
@@ -51,6 +54,11 @@ describe('App Component', () => {
 
   it('shows error when submitting empty form', async () => {
     render(<App />)
+    
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
+    })
+
     const button = screen.getByText('Join / Login')
     fireEvent.click(button)
     
@@ -60,20 +68,29 @@ describe('App Component', () => {
   })
 
   it('allows a user to join successfully', async () => {
-    // Mock successful insert
-    const newUser = { id: 1, name: 'Alice', wishes: { item1: 'A', item2: 'B', item3: 'C' } }
+    const newUser = { id: 1, name: 'Alice', wishes: ['A', 'B', 'C'] }
     
-    const selectMock = supabase.from().select
-    // First call for fetchParticipants, second for checkLotteryStatus
-    selectMock.mockResolvedValueOnce({ data: [], error: null })
-              .mockResolvedValueOnce({ data: [], error: null })
-
-    const insertMock = supabase.from().insert
-    insertMock.mockReturnValue({
-      select: vi.fn().mockResolvedValue({ data: [newUser], error: null })
-    })
+    // Call 1: fetchParticipants (select *)
+    const fetchBuilder = createMockBuilder({ data: [], error: null })
+    
+    // Call 2: checkLotteryStatus (select drawn_participant_id)
+    const statusBuilder = createMockBuilder({ data: [], error: null })
+    
+    // Call 3: insert
+    const insertResultBuilder = createMockBuilder({ data: [newUser], error: null })
+    const insertBuilder = createMockBuilder()
+    insertBuilder.insert.mockReturnValue(insertResultBuilder) 
+    
+    supabase.from
+      .mockReturnValueOnce(fetchBuilder)
+      .mockReturnValueOnce(statusBuilder)
+      .mockReturnValueOnce(insertBuilder)
 
     render(<App />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
+    })
 
     fireEvent.change(screen.getByPlaceholderText('Enter your name'), { target: { value: 'Alice' } })
     fireEvent.change(screen.getByPlaceholderText('First wish'), { target: { value: 'A' } })
@@ -88,17 +105,22 @@ describe('App Component', () => {
   })
 
   it('logs in an existing user', async () => {
-    const existingUser = { id: 1, name: 'Bob', wishes: { item1: 'X', item2: 'Y', item3: 'Z' } }
+    const existingUser = { id: 1, name: 'Bob', wishes: ['X', 'Y', 'Z'] }
     
-    const selectMock = supabase.from().select
-    selectMock.mockResolvedValueOnce({ data: [existingUser], error: null }) // fetchParticipants
-              .mockResolvedValueOnce({ data: [], error: null }) // checkLotteryStatus
+    // Call 1: fetchParticipants -> returns [existingUser]
+    const fetchBuilder = createMockBuilder({ data: [existingUser], error: null })
+    
+    // Call 2: checkLotteryStatus
+    const statusBuilder = createMockBuilder({ data: [], error: null })
+    
+    supabase.from
+      .mockReturnValueOnce(fetchBuilder)
+      .mockReturnValueOnce(statusBuilder)
 
     render(<App />)
 
-    // Wait for initial fetch
     await waitFor(() => {
-      // We don't see the list immediately because we are not logged in, but the state is updated
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
     })
 
     fireEvent.change(screen.getByPlaceholderText('Enter your name'), { target: { value: 'Bob' } })
@@ -114,24 +136,33 @@ describe('App Component', () => {
   })
 
   it('shows lottery status as open and allows drawing', async () => {
-    const user1 = { id: 1, name: 'Alice', wishes: { item1: 'A', item2: 'B', item3: 'C' } }
-    const user2 = { id: 2, name: 'Bob', wishes: { item1: 'X', item2: 'Y', item3: 'Z' } }
+    const user1 = { id: 1, name: 'Alice', wishes: ['A', 'B', 'C'] }
+    const user2 = { id: 2, name: 'Bob', wishes: ['X', 'Y', 'Z'] }
     
-    const selectMock = supabase.from().select
-    selectMock.mockResolvedValueOnce({ data: [user1, user2], error: null }) // fetchParticipants
-              .mockResolvedValueOnce({ data: [], error: null }) // checkLotteryStatus
-
-    // Mock update for draw
-    const updateMock = supabase.from().update
-    updateMock.mockReturnValue({
-      eq: vi.fn().mockResolvedValue({ error: null })
-    })
-
-    // Mock refreshing current user
-    const singleMock = supabase.from().select().eq().single
-    singleMock.mockResolvedValue({ data: { ...user1, drawn_participant_id: 2 }, error: null })
+    // 1. fetchParticipants
+    const fetchBuilder = createMockBuilder({ data: [user1, user2], error: null })
+    
+    // 2. checkLotteryStatus
+    const statusBuilder = createMockBuilder({ data: [], error: null })
+    
+    // 3. Update calls (inside handleDraw loop)
+    const updateBuilder = createMockBuilder({ data: [], error: null })
+    
+    // 4. Refresh current user (select single)
+    const refreshUserBuilder = createMockBuilder({ data: { ...user1, drawn_participant_id: 2 }, error: null })
+    
+    supabase.from
+      .mockReturnValueOnce(fetchBuilder)
+      .mockReturnValueOnce(statusBuilder)
+      .mockReturnValueOnce(updateBuilder) // update 1
+      .mockReturnValueOnce(updateBuilder) // update 2
+      .mockReturnValueOnce(refreshUserBuilder) // refresh user
 
     render(<App />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
+    })
 
     // Login as Alice
     fireEvent.change(screen.getByPlaceholderText('Enter your name'), { target: { value: 'Alice' } })
@@ -152,18 +183,28 @@ describe('App Component', () => {
   })
 
   it('reveals the drawn person', async () => {
-    const user1 = { id: 1, name: 'Alice', drawn_participant_id: 2, wishes: { item1: 'A', item2: 'B', item3: 'C' } }
-    const user2 = { id: 2, name: 'Bob', wishes: { item1: 'X', item2: 'Y', item3: 'Z' } }
+    const user1 = { id: 1, name: 'Alice', drawn_participant_id: 2, wishes: ['A', 'B', 'C'] }
+    const user2 = { id: 2, name: 'Bob', wishes: ['X', 'Y', 'Z'] }
     
-    const selectMock = supabase.from().select
-    selectMock.mockResolvedValueOnce({ data: [user1, user2], error: null }) // fetchParticipants
-              .mockResolvedValueOnce({ data: [{ drawn_participant_id: 2 }, { drawn_participant_id: 1 }], error: null }) // checkLotteryStatus
-
-    // Mock reveal fetch
-    const singleMock = supabase.from().select().eq().single
-    singleMock.mockResolvedValue({ data: user2, error: null })
+    // 1. fetchParticipants
+    const fetchBuilder = createMockBuilder({ data: [user1, user2], error: null })
+    
+    // 2. checkLotteryStatus -> returns data indicating draw happened
+    const statusBuilder = createMockBuilder({ data: [{ drawn_participant_id: 2 }, { drawn_participant_id: 1 }], error: null })
+    
+    // 3. Reveal draw (select single)
+    const revealBuilder = createMockBuilder({ data: user2, error: null })
+    
+    supabase.from
+      .mockReturnValueOnce(fetchBuilder)
+      .mockReturnValueOnce(statusBuilder)
+      .mockReturnValueOnce(revealBuilder)
 
     render(<App />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
+    })
 
     // Login as Alice
     fireEvent.change(screen.getByPlaceholderText('Enter your name'), { target: { value: 'Alice' } })
