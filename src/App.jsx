@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import './App.css'
+import AdminPage from './AdminPage'
 
 function App() {
   const [username, setUsername] = useState('') // Maps to 'id'
@@ -23,6 +24,7 @@ function App() {
   const [isNamesRevealed, setIsNamesRevealed] = useState(false)
   const [isLoginMode, setIsLoginMode] = useState(true)
   const [isEditingWishes, setIsEditingWishes] = useState(false)
+  const [showAdminPage, setShowAdminPage] = useState(false)
 
   const ADMIN_USERNAME = 'admin'
 
@@ -46,6 +48,23 @@ function App() {
       setWish3('')
     }
   }, [currentUser])
+
+  // Reload draw result if user logs in and lottery is drawn
+  useEffect(() => {
+    if (currentUser && lotteryStatus === 'drawn' && currentUser.drawn_participant_id) {
+      // If we already have a result but it might be stale (e.g. wishes updated), we could reload.
+      // Or if we just logged in and haven't fetched it yet.
+      // But the user has to click "See who you need to buy for" to fetch it currently.
+      // If we want to auto-reload wishes when they log in, we can do it here if drawResult is already set,
+      // or if we want to auto-fetch.
+      
+      // The requirement is "reload drawResult.wishes if login".
+      // This implies if I've already revealed, I should see the latest wishes.
+      if (drawResult) {
+         revealDraw()
+      }
+    }
+  }, [currentUser]) // Dependency on currentUser ensures this runs on login
 
   const fetchParticipants = async () => {
     const { data, error } = await supabase
@@ -98,6 +117,8 @@ function App() {
            setError("Invalid password")
         } else {
            setCurrentUser(data)
+           // Reset draw result on new login so they have to click reveal again (or we can auto fetch)
+           setDrawResult(null)
         }
       }
     } else {
@@ -270,6 +291,10 @@ function App() {
     return <div className="container">Loading...</div>
   }
 
+  if (showAdminPage && currentUser?.id === ADMIN_USERNAME) {
+    return <AdminPage onBack={() => setShowAdminPage(false)} />
+  }
+
   return (
     <div className="container">
       <h1>LP5 New Year's Party</h1>
@@ -407,11 +432,18 @@ function App() {
             <div>
               <h3>The lottery has been drawn!</h3>
               
-              {currentUser.id === ADMIN_USERNAME && !isNamesRevealed && (
+              {currentUser.id === ADMIN_USERNAME && (
                 <div style={{marginBottom: '1rem', padding: '1rem', backgroundColor: '#fff3e0', borderRadius: '8px'}}>
-                  <p><strong>Admin Control:</strong> Names are currently hidden.</p>
-                  <button onClick={handleGlobalReveal} disabled={loading} style={{backgroundColor: '#e67e22'}}>
-                    Reveal All Names to Participants
+                  {!isNamesRevealed && (
+                    <>
+                      <p><strong>Admin Control:</strong> Names are currently hidden.</p>
+                      <button onClick={handleGlobalReveal} disabled={loading} style={{backgroundColor: '#e67e22', marginBottom: '0.5rem'}}>
+                        Reveal All Names to Participants
+                      </button>
+                    </>
+                  )}
+                  <button onClick={() => setShowAdminPage(true)} style={{backgroundColor: '#333', display: 'block', width: '100%', marginTop: '0.5rem'}}>
+                    View Gift Exchange Chain
                   </button>
                 </div>
               )}

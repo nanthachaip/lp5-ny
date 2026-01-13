@@ -11,6 +11,7 @@ const createMockBuilder = (resultData = { data: [], error: null }) => {
     update: vi.fn(),
     eq: vi.fn(),
     single: vi.fn(),
+    neq: vi.fn(),
     then: (resolve, reject) => Promise.resolve(resultData).then(resolve, reject)
   }
 
@@ -21,6 +22,7 @@ const createMockBuilder = (resultData = { data: [], error: null }) => {
   builder.update.mockReturnValue(builder)
   builder.eq.mockReturnValue(builder)
   builder.single.mockReturnValue(builder)
+  builder.neq.mockReturnValue(builder)
 
   return builder
 }
@@ -39,7 +41,7 @@ describe('App Component', () => {
     supabase.from.mockReturnValue(createMockBuilder({ data: [], error: null }))
   })
 
-  it('renders the join form initially', async () => {
+  it('renders the login form initially', async () => {
     render(<App />)
     
     // Wait for loading to finish
@@ -47,9 +49,9 @@ describe('App Component', () => {
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
     })
 
-    expect(screen.getByText("New Year's Gift Exchange 🎁")).toBeInTheDocument()
-    expect(screen.getByText('Join the Lottery')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('Enter your name')).toBeInTheDocument()
+    expect(screen.getByText("LP5 New Year's Party")).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Enter user')).toBeInTheDocument()
   })
 
   it('shows error when submitting empty form', async () => {
@@ -59,7 +61,11 @@ describe('App Component', () => {
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
     })
 
-    const button = screen.getByText('Join / Login')
+    // Switch to Join mode
+    const joinLink = screen.getByText('Join now')
+    fireEvent.click(joinLink)
+
+    const button = screen.getByRole('button', { name: 'Join' })
     fireEvent.click(button)
     
     await waitFor(() => {
@@ -68,7 +74,7 @@ describe('App Component', () => {
   })
 
   it('allows a user to join successfully', async () => {
-    const newUser = { id: 1, name: 'Alice', wishes: ['A', 'B', 'C'] }
+    const newUser = { id: 'alice', name: 'Alice', wishes: ['', '', ''] }
     
     // Call 1: fetchParticipants (select *)
     const fetchBuilder = createMockBuilder({ data: [], error: null })
@@ -92,12 +98,14 @@ describe('App Component', () => {
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
     })
 
-    fireEvent.change(screen.getByPlaceholderText('Enter your name'), { target: { value: 'Alice' } })
-    fireEvent.change(screen.getByPlaceholderText('First wish'), { target: { value: 'A' } })
-    fireEvent.change(screen.getByPlaceholderText('Second wish'), { target: { value: 'B' } })
-    fireEvent.change(screen.getByPlaceholderText('Third wish'), { target: { value: 'C' } })
+    // Switch to Join mode
+    fireEvent.click(screen.getByText('Join now'))
 
-    fireEvent.click(screen.getByText('Join / Login'))
+    fireEvent.change(screen.getByPlaceholderText('Enter user'), { target: { value: 'alice' } })
+    fireEvent.change(screen.getByPlaceholderText('Enter your name'), { target: { value: 'Alice' } })
+    fireEvent.change(screen.getByPlaceholderText('Enter password'), { target: { value: 'password' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Join' }))
 
     await waitFor(() => {
       expect(screen.getByText('Welcome, Alice!')).toBeInTheDocument()
@@ -105,7 +113,7 @@ describe('App Component', () => {
   })
 
   it('logs in an existing user', async () => {
-    const existingUser = { id: 1, name: 'Bob', wishes: ['X', 'Y', 'Z'] }
+    const existingUser = { id: 'bob', name: 'Bob', password: 'password', wishes: ['X', 'Y', 'Z'] }
     
     // Call 1: fetchParticipants -> returns [existingUser]
     const fetchBuilder = createMockBuilder({ data: [existingUser], error: null })
@@ -113,9 +121,13 @@ describe('App Component', () => {
     // Call 2: checkLotteryStatus
     const statusBuilder = createMockBuilder({ data: [], error: null })
     
+    // Call 3: Login select single
+    const loginBuilder = createMockBuilder({ data: existingUser, error: null })
+
     supabase.from
       .mockReturnValueOnce(fetchBuilder)
       .mockReturnValueOnce(statusBuilder)
+      .mockReturnValueOnce(loginBuilder)
 
     render(<App />)
 
@@ -123,37 +135,40 @@ describe('App Component', () => {
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
     })
 
-    fireEvent.change(screen.getByPlaceholderText('Enter your name'), { target: { value: 'Bob' } })
-    fireEvent.change(screen.getByPlaceholderText('First wish'), { target: { value: 'X' } })
-    fireEvent.change(screen.getByPlaceholderText('Second wish'), { target: { value: 'Y' } })
-    fireEvent.change(screen.getByPlaceholderText('Third wish'), { target: { value: 'Z' } })
+    fireEvent.change(screen.getByPlaceholderText('Enter user'), { target: { value: 'bob' } })
+    fireEvent.change(screen.getByPlaceholderText('Enter password'), { target: { value: 'password' } })
 
-    fireEvent.click(screen.getByText('Join / Login'))
+    fireEvent.click(screen.getByRole('button', { name: 'Login' }))
 
     await waitFor(() => {
       expect(screen.getByText('Welcome, Bob!')).toBeInTheDocument()
     })
   })
 
-  it('shows lottery status as open and allows drawing', async () => {
-    const user1 = { id: 1, name: 'Alice', wishes: ['A', 'B', 'C'] }
-    const user2 = { id: 2, name: 'Bob', wishes: ['X', 'Y', 'Z'] }
+  it('shows lottery status as open and allows drawing (admin)', async () => {
+    const adminUser = { id: 'admin', name: 'Admin', password: 'password', wishes: [] }
+    const user1 = { id: 'alice', name: 'Alice', wishes: ['A', 'B', 'C'] }
+    const user2 = { id: 'bob', name: 'Bob', wishes: ['X', 'Y', 'Z'] }
     
     // 1. fetchParticipants
-    const fetchBuilder = createMockBuilder({ data: [user1, user2], error: null })
+    const fetchBuilder = createMockBuilder({ data: [adminUser, user1, user2], error: null })
     
     // 2. checkLotteryStatus
     const statusBuilder = createMockBuilder({ data: [], error: null })
     
-    // 3. Update calls (inside handleDraw loop)
+    // 3. Login
+    const loginBuilder = createMockBuilder({ data: adminUser, error: null })
+
+    // 4. Update calls (inside handleDraw loop)
     const updateBuilder = createMockBuilder({ data: [], error: null })
     
-    // 4. Refresh current user (select single)
-    const refreshUserBuilder = createMockBuilder({ data: { ...user1, drawn_participant_id: 2 }, error: null })
+    // 5. Refresh current user (select single)
+    const refreshUserBuilder = createMockBuilder({ data: { ...adminUser }, error: null })
     
     supabase.from
       .mockReturnValueOnce(fetchBuilder)
       .mockReturnValueOnce(statusBuilder)
+      .mockReturnValueOnce(loginBuilder)
       .mockReturnValueOnce(updateBuilder) // update 1
       .mockReturnValueOnce(updateBuilder) // update 2
       .mockReturnValueOnce(refreshUserBuilder) // refresh user
@@ -164,12 +179,10 @@ describe('App Component', () => {
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
     })
 
-    // Login as Alice
-    fireEvent.change(screen.getByPlaceholderText('Enter your name'), { target: { value: 'Alice' } })
-    fireEvent.change(screen.getByPlaceholderText('First wish'), { target: { value: 'A' } })
-    fireEvent.change(screen.getByPlaceholderText('Second wish'), { target: { value: 'B' } })
-    fireEvent.change(screen.getByPlaceholderText('Third wish'), { target: { value: 'C' } })
-    fireEvent.click(screen.getByText('Join / Login'))
+    // Login as Admin
+    fireEvent.change(screen.getByPlaceholderText('Enter user'), { target: { value: 'admin' } })
+    fireEvent.change(screen.getByPlaceholderText('Enter password'), { target: { value: 'password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Login' }))
 
     await waitFor(() => {
       expect(screen.getByText('Start Lottery Draw')).toBeInTheDocument()
@@ -183,21 +196,25 @@ describe('App Component', () => {
   })
 
   it('reveals the drawn person', async () => {
-    const user1 = { id: 1, name: 'Alice', drawn_participant_id: 2, wishes: ['A', 'B', 'C'] }
-    const user2 = { id: 2, name: 'Bob', wishes: ['X', 'Y', 'Z'] }
+    const user1 = { id: 'alice', name: 'Alice', password: 'password', drawn_participant_id: 'bob', wishes: ['A', 'B', 'C'] }
+    const user2 = { id: 'bob', name: 'Bob', wishes: ['X', 'Y', 'Z'] }
     
     // 1. fetchParticipants
     const fetchBuilder = createMockBuilder({ data: [user1, user2], error: null })
     
     // 2. checkLotteryStatus -> returns data indicating draw happened
-    const statusBuilder = createMockBuilder({ data: [{ drawn_participant_id: 2 }, { drawn_participant_id: 1 }], error: null })
+    const statusBuilder = createMockBuilder({ data: [{ drawn_participant_id: 'bob' }, { drawn_participant_id: 'alice' }], error: null })
     
-    // 3. Reveal draw (select single)
+    // 3. Login
+    const loginBuilder = createMockBuilder({ data: user1, error: null })
+
+    // 4. Reveal draw (select single)
     const revealBuilder = createMockBuilder({ data: user2, error: null })
     
     supabase.from
       .mockReturnValueOnce(fetchBuilder)
       .mockReturnValueOnce(statusBuilder)
+      .mockReturnValueOnce(loginBuilder)
       .mockReturnValueOnce(revealBuilder)
 
     render(<App />)
@@ -207,11 +224,9 @@ describe('App Component', () => {
     })
 
     // Login as Alice
-    fireEvent.change(screen.getByPlaceholderText('Enter your name'), { target: { value: 'Alice' } })
-    fireEvent.change(screen.getByPlaceholderText('First wish'), { target: { value: 'A' } })
-    fireEvent.change(screen.getByPlaceholderText('Second wish'), { target: { value: 'B' } })
-    fireEvent.change(screen.getByPlaceholderText('Third wish'), { target: { value: 'C' } })
-    fireEvent.click(screen.getByText('Join / Login'))
+    fireEvent.change(screen.getByPlaceholderText('Enter user'), { target: { value: 'alice' } })
+    fireEvent.change(screen.getByPlaceholderText('Enter password'), { target: { value: 'password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Login' }))
 
     await waitFor(() => {
       expect(screen.getByText('See who you need to buy for')).toBeInTheDocument()
@@ -223,6 +238,107 @@ describe('App Component', () => {
       expect(screen.getByText('X')).toBeInTheDocument()
       expect(screen.getByText('Y')).toBeInTheDocument()
       expect(screen.getByText('Z')).toBeInTheDocument()
+    })
+  })
+
+  it('allows user to update wishes', async () => {
+    const user = { id: 'alice', name: 'Alice', password: 'password', wishes: ['A', 'B', 'C'] }
+    
+    // 1. fetchParticipants
+    const fetchBuilder = createMockBuilder({ data: [user], error: null })
+    
+    // 2. checkLotteryStatus
+    const statusBuilder = createMockBuilder({ data: [], error: null })
+    
+    // 3. Login
+    const loginBuilder = createMockBuilder({ data: user, error: null })
+
+    // 4. Update wishes
+    const updatedUser = { ...user, wishes: ['New A', 'New B', 'New C'] }
+    const updateBuilder = createMockBuilder({ data: updatedUser, error: null })
+
+    supabase.from
+      .mockReturnValueOnce(fetchBuilder)
+      .mockReturnValueOnce(statusBuilder)
+      .mockReturnValueOnce(loginBuilder)
+      .mockReturnValueOnce(updateBuilder)
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
+    })
+
+    // Login
+    fireEvent.change(screen.getByPlaceholderText('Enter user'), { target: { value: 'alice' } })
+    fireEvent.change(screen.getByPlaceholderText('Enter password'), { target: { value: 'password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Login' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Welcome, Alice!')).toBeInTheDocument()
+    })
+
+    // Click Edit Wishes
+    fireEvent.click(screen.getByText('Edit Wishes'))
+
+    // Change wishes
+    const inputs = screen.getAllByPlaceholderText(/wish/i)
+    fireEvent.change(inputs[0], { target: { value: 'New A' } })
+    fireEvent.change(inputs[1], { target: { value: 'New B' } })
+    fireEvent.change(inputs[2], { target: { value: 'New C' } })
+
+    fireEvent.click(screen.getByText('Save Wishes'))
+
+    await waitFor(() => {
+      expect(screen.getByText('New A')).toBeInTheDocument()
+      expect(screen.getByText('New B')).toBeInTheDocument()
+      expect(screen.getByText('New C')).toBeInTheDocument()
+    })
+  })
+
+  it('allows admin to reveal all names globally', async () => {
+    const adminUser = { id: 'admin', name: 'Admin', password: 'password', wishes: [] }
+    
+    // 1. fetchParticipants
+    const fetchBuilder = createMockBuilder({ data: [adminUser], error: null })
+    
+    // 2. checkLotteryStatus (drawn but not revealed)
+    const statusBuilder = createMockBuilder({ data: [{ drawn_participant_id: 'x', is_revealed: false }], error: null })
+    
+    // 3. Login
+    const loginBuilder = createMockBuilder({ data: adminUser, error: null })
+
+    // 4. Global reveal update
+    const updateBuilder = createMockBuilder({ data: [], error: null })
+
+    supabase.from
+      .mockReturnValueOnce(fetchBuilder)
+      .mockReturnValueOnce(statusBuilder)
+      .mockReturnValueOnce(loginBuilder)
+      .mockReturnValueOnce(updateBuilder)
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
+    })
+
+    // Login
+    fireEvent.change(screen.getByPlaceholderText('Enter user'), { target: { value: 'admin' } })
+    fireEvent.change(screen.getByPlaceholderText('Enter password'), { target: { value: 'password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Login' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Reveal All Names to Participants')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Reveal All Names to Participants'))
+
+    // Since we don't re-fetch status in the component immediately (it sets local state), 
+    // we check if the button disappears or state changes.
+    // In the code: setIsNamesRevealed(true) which hides the button.
+    await waitFor(() => {
+      expect(screen.queryByText('Reveal All Names to Participants')).not.toBeInTheDocument()
     })
   })
 })
