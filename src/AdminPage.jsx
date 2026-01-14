@@ -120,7 +120,7 @@ function AdminPage({ onBack }) {
 
   return (
     <div className="card">
-      <h2>Admin Dashboard - Gift Exchange Chain</h2>
+      <h2>Gift Exchange Chain</h2>
       <button onClick={onBack} style={{marginBottom: '1rem', backgroundColor: '#666'}}>Back to Main</button>
       
       {chain.length === 0 ? (
@@ -131,7 +131,16 @@ function AdminPage({ onBack }) {
             <button 
               onClick={handleNextStep} 
               disabled={step >= chain.length - 0.5}
-              style={{backgroundColor: '#2ecc71', fontSize: '1.1em', padding: '0.8rem 1.5rem'}}
+              style={{
+                backgroundColor: '#F37021', 
+                fontSize: '1.1em', 
+                padding: '0.8rem 1.5rem',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                boxShadow: '0 2px 5px rgba(0,0,0,0.1)'
+              }}
             >
               {step === -1 ? "Start Reveal" : 
                step % 1 === 0 ? "Reveal Receiver" : "Next Giver"}
@@ -152,25 +161,27 @@ function AdminPage({ onBack }) {
                 <li 
                   key={index} 
                   style={{
-                    padding: '0.75rem', 
+                    padding: '1rem', 
                     borderBottom: '1px solid #eee', 
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    backgroundColor: isReceiverRevealed ? '#f0fff4' : '#fff'
+                    backgroundColor: isReceiverRevealed ? '#fff8f3' : '#fff',
+                    transition: 'background-color 0.3s ease'
                   }}
                 >
-                  <span style={{fontWeight: 'bold', fontSize: '1.1em'}}>{link.giver}</span> 
-                  <span style={{margin: '0 1rem'}}>➔</span>
+                  <span style={{fontWeight: 'bold', fontSize: '1.1em', color: '#333'}}>{link.giver}</span> 
+                  <span style={{margin: '0 1rem', color: '#F37021'}}>➔</span>
                   <span style={{
                     fontWeight: isReceiverRevealed ? 'bold' : 'normal',
-                    color: isReceiverRevealed ? '#27ae60' : '#ccc',
-                    backgroundColor: isReceiverRevealed ? 'transparent' : '#eee',
-                    padding: '0.2rem 0.8rem',
-                    borderRadius: '4px',
+                    color: isReceiverRevealed ? '#F37021' : '#ccc',
+                    backgroundColor: isReceiverRevealed ? 'transparent' : '#f5f5f5',
+                    padding: '0.4rem 1rem',
+                    borderRadius: '20px',
                     minWidth: '100px',
                     textAlign: 'center',
-                    fontSize: '1.1em'
+                    fontSize: '1.1em',
+                    transition: 'all 0.3s ease'
                   }}>
                     {isReceiverRevealed ? link.receiver : '???'}
                   </span>
@@ -180,7 +191,7 @@ function AdminPage({ onBack }) {
           </ul>
           
           {step >= chain.length - 0.5 && (
-            <p style={{textAlign: 'center', marginTop: '2rem', color: '#27ae60', fontWeight: 'bold'}}>
+            <p style={{textAlign: 'center', marginTop: '2rem', color: '#F37021', fontWeight: 'bold', fontSize: '1.2em'}}>
               All pairs revealed! 🎉
             </p>
           )}
